@@ -36,7 +36,7 @@ public class AnalyseImageService implements Serializable{
 		Logger root = (Logger)LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
 		root.setLevel(Level.WARN);
 		// Create Java spark context
-		SparkConf conf = new SparkConf().setAppName("SVM vs Navie Bayes")
+		SparkConf conf = new SparkConf().setAppName("ANN Test")
 				.setMaster("local[*]")
 				.set("spark.driver.allowMultipleContexts", "true");
 		JavaSparkContext sc = new JavaSparkContext(conf);
