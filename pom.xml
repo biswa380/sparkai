@@ -53,7 +53,12 @@
 			<version>2.3.1</version>
 <!-- 			<scope>runtime</scope> -->
 		</dependency>
-
+		<!-- https://mvnrepository.com/artifact/org.mongodb.spark/mongo-spark-connector -->
+		<dependency>
+			<groupId>org.mongodb.spark</groupId>
+			<artifactId>mongo-spark-connector_2.11</artifactId>
+			<version>2.3.1</version>
+		</dependency>
 		<!-- https://mvnrepository.com/artifact/com.github.fommil.netlib/all -->
 <!-- 		<dependency>
 			<groupId>com.github.fommil.netlib</groupId>

@@ -1,0 +1,13 @@
+	public static UDF1<String,String> countryGrouping = new UDF1<String,String>() {
+
+		@Override
+		public String call(String country) throws Exception {
+			List<String> topCountries =  Arrays.asList(new String[] {"GB","US","IN","UNKNOWN"});
+			List<String> europeanCountries =  Arrays.asList(new String[] {"BE","BG","CZ","DK","DE","EE","IE","EL","ES","FR","HR","IT","CY","LV","LT","LU","HU","MT","NL","AT","PL","PT","RO","SI","SK","FI","SE","CH","IS","NO","LI","EU"});
+			
+			if (topCountries.contains(country)) return country; 
+			if (europeanCountries .contains(country)) return "EUROPE";
+			else return "OTHER";
+		}
+		
+	};

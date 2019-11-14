@@ -1,12 +1,24 @@
 package org.sdrc.sparkai.sparkai;
 
-import org.apache.spark.ml.evaluation.RegressionEvaluator;
+import static org.apache.spark.sql.functions.*;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.spark.ml.clustering.KMeans;
+import org.apache.spark.ml.clustering.KMeansModel;
+import org.apache.spark.ml.evaluation.ClusteringEvaluator;
+import org.apache.spark.ml.feature.NGram;
+import org.apache.spark.ml.feature.OneHotEncoderEstimator;
+import org.apache.spark.ml.feature.StopWordsRemover;
 import org.apache.spark.ml.feature.StringIndexer;
-import org.apache.spark.ml.recommendation.ALS;
-import org.apache.spark.ml.recommendation.ALSModel;
+import org.apache.spark.ml.feature.Tokenizer;
+import org.apache.spark.ml.feature.VectorAssembler;
+import org.apache.spark.ml.linalg.Vector;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 import org.slf4j.LoggerFactory;
 
 import ch.qos.logback.classic.Level;
@@ -20,56 +32,95 @@ public class IndicatorClassification {
 		root.setLevel(Level.WARN);
 		
 		SparkSession spark = SparkSession.builder()
-				.appName("Indicator Recommender")
+				.appName("Indicator Clustering")
 				.config("spark.warehouse.dir", "file:///c:/tmp/")
 				.master("local[*]")
 				.getOrCreate();
 		
-		Dataset<Row> csvData = spark.read()
+		Dataset<Row> indicatorData = spark.read()
 				.option("header", true)
 				.option("inferSchema", true)
-				.csv("E:\\python-workspace\\datasets\\user_indicator_view.csv");
+				.csv("E:\\rani-workspace\\indicator.csv");
+		indicatorData.show();
 		
-		csvData.show();
+		indicatorData = indicatorData.select("indicatorNid", "indicatorName", "unit", "subgroup", "formId", "numerator")
+				.where(col("subgroup").isNotNull().and(col("unit").isNotNull()).and(col("unit").equalTo("number")).and(col("numerator").isNotNull()))
+				.withColumn("formId", functions.when(col("formId").isNull(), 0).otherwise(col("formId")))
+				.withColumn("indicatorName", lower(col("indicatorName")));
 		
-		ALS als = new ALS()
-				.setMaxIter(10)
-				.setUserCol("userId")
-				.setItemCol("indicatorId")
-				.setRatingCol("count");
+		Tokenizer indicatorTokenizer = new Tokenizer()
+				.setInputCol("indicatorName")
+				.setOutputCol("indicator_token");
+		Dataset<Row> tokenizedData= indicatorTokenizer.transform(indicatorData);
+		tokenizedData.show();
 		
-		als.setColdStartStrategy("drop");
+		String[] stopwords = new String[] {"number", "percent", "of", "the", "is", "are", "for", "with", "percentage", "conducted", 
+				"where", "were", "which", "to", "their", "was", "sessions", "conducted", "there", "theme", "demonstration", "engagement", "meetings",
+				"\\", "\""};
+		StopWordsRemover indicatorFilter = new StopWordsRemover()
+				.setStopWords(stopwords)
+				.setInputCol("indicator_token")
+				.setOutputCol("filtered_indicator");
+		Dataset<Row> filteredData = indicatorFilter.transform(tokenizedData);
+		filteredData.show();
 		
-		ALSModel model = als.fit(csvData);
+		NGram ngramTransformer = new NGram()
+				.setN(3)
+				.setInputCol("filtered_indicator")
+				.setOutputCol("indicator_ngrams");
 		
-		//This process will take another test dataset and will transform the test dataset over trained model
-		Dataset<Row> test_data = spark.read()
-				.option("header", true)
-				.option("inferSchema", true)
-				.csv("E:\\python-workspace\\datasets\\user_indicator_test.csv");
-		Dataset<Row> predictions = model.transform(test_data);
-		predictions.show();
-		RegressionEvaluator evaluator=new RegressionEvaluator()
-				.setMetricName("rmse")
-				.setLabelCol("count")
-				.setPredictionCol("prediction");
-		double rmse = evaluator.evaluate(predictions);
-		System.out.println("Root mean square error for this model is :: "+rmse);
+		Dataset<Row> ngramData = ngramTransformer.transform(filteredData);
+		ngramData.show();
 		
+		indicatorData = ngramData.selectExpr("indicatorNid", "indicatorName", "indicator_ngrams[0]","numerator");
+		indicatorData.show();
 		
-//		This process will take the entire data on which it has been trained and will fill the gaps of each user
-		Dataset<Row> userRecommendations = model.recommendForAllUsers(5);
-		userRecommendations.show();
+		StringIndexer indicatorIndexer = new StringIndexer()
+				.setInputCol("indicator_ngrams[0]")
+				.setOutputCol("indicator_index").setHandleInvalid("skip");
+		indicatorData = indicatorIndexer.fit(indicatorData)
+				.transform(indicatorData);
 		
-		userRecommendations.takeAsList(5).forEach(u -> {
-			System.out.println("User "+u.getAs(0)+", we suggest you to see "+u.getAs(1).toString()+" indicators");
-		});
+		indicatorData = new StringIndexer()
+				.setInputCol("numerator")
+				.setOutputCol("numerator_index").setHandleInvalid("skip")
+				.fit(indicatorData)
+				.transform(indicatorData);
 		
-		Dataset<Row> indicatorRecommendations = model.recommendForAllItems(5);
-		indicatorRecommendations.show();
-		indicatorRecommendations.takeAsList(5).forEach(indicator -> {
-			System.out.println("Users who might see Indicator-"+indicator.getAs(0)+" are "+indicator.getAs(1).toString());
-		});
+		indicatorData.show();
+		System.out.println("after string indexing*********************************");
+		
+		OneHotEncoderEstimator encoder = new OneHotEncoderEstimator();
+		indicatorData = encoder.setInputCols(new String[] {"indicator_index", "numerator_index"})
+		.setOutputCols(new String[] {"indicator_vector", "numerator_vector"})
+		.fit(indicatorData)
+		.transform(indicatorData);
+		
+		VectorAssembler vectorAssembler = new VectorAssembler();
+		Dataset<Row> inputData = vectorAssembler.setInputCols(new String[] {"indicator_vector", "numerator_vector"})
+				.setOutputCol("features")
+				.transform(indicatorData)
+				.select("indicatorNid", "indicator_ngrams[0]", "indicatorName", "features");
+		
+		inputData.show();
+		
+		KMeans kmeans = new KMeans();
+		for (int i = 210; i <= 210; i++) {
+			kmeans.setK(i);
+			System.out.println("k = "+i);
+			KMeansModel kMeansModel = kmeans.fit(inputData);
+			Dataset<Row> predictions = kMeansModel.transform(inputData);
+//			predictions.show();
+			predictions.select("indicatorName", "indicator_ngrams[0]", "prediction").write().format("com.databricks.spark.csv")
+			.option("header", "true").save("E://indicator_cluster"+i);
+//			predictions.groupBy("prediction").count().show();
+			System.out.println("SSE is " + kMeansModel.computeCost(inputData));
+			
+			ClusteringEvaluator evaluator = new ClusteringEvaluator();
+			System.out.println("Slihouette with squared euclidean distance is " + evaluator.evaluate(predictions));
+			System.out.println("*******************************************************************");
+		}
+			
 	}
 
 }
