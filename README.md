@@ -8,4 +8,4 @@ Now call "/sparkai/testModel" by passing csv folder path of trsined model and te
 
 # Other Algorithms
 
-This project has set of examples for classification, regression and recommender system. 
+This project has set of examples for classification, regression and recommender system. "# SparkLiquid" 
